@@ -45,7 +45,7 @@ python gpt3_baseline.py \
 The results will be saved in `./baselines/results`. To evaluate the results, please run the following commands:
 
 ```bash
-python evaluate.py \
+python evaluation.py \
     --dataset_name "Dataset Name [ProntoQA | ProofWriter | FOLIO | LogicalDeduction ｜ AR-LSAT]" \
     --model_name "Model Name [text-davinci-003 | gpt-4]" \
     --split dev \
