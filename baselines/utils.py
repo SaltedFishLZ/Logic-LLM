@@ -2,17 +2,20 @@ import backoff  # for exponential backoff
 import openai
 import os
 import asyncio
-from typing import Any
+from typing import Any, Union
 
-@backoff.on_exception(backoff.expo, openai.error.RateLimitError)
-def completions_with_backoff(**kwargs):
-    return openai.Completion.create(**kwargs)
+@backoff.on_exception(backoff.expo, openai.RateLimitError)
+def completions_with_backoff(client: Union[openai.OpenAI, openai.AzureOpenAI],
+                             **kwargs):
+    return client.completions.create(**kwargs)
 
-@backoff.on_exception(backoff.expo, openai.error.RateLimitError)
-def chat_completions_with_backoff(**kwargs):
-    return openai.ChatCompletion.create(**kwargs)
+@backoff.on_exception(backoff.expo, openai.RateLimitError)
+def chat_completions_with_backoff(client: Union[openai.OpenAI, openai.AzureOpenAI],
+                                  **kwargs):
+    return client.chat.completions.create(**kwargs)
 
 async def dispatch_openai_chat_requests(
+    async_client: Union[openai.OpenAI, openai.AzureOpenAI],
     messages_list: list[list[dict[str,Any]]],
     model: str,
     temperature: float,
@@ -33,7 +36,7 @@ async def dispatch_openai_chat_requests(
         List of responses from OpenAI API.
     """
     async_responses = [
-        openai.ChatCompletion.acreate(
+        async_client.chat.completions.create(
             model=model,
             messages=x,
             temperature=temperature,
@@ -46,6 +49,7 @@ async def dispatch_openai_chat_requests(
     return await asyncio.gather(*async_responses)
 
 async def dispatch_openai_prompt_requests(
+    async_client: Union[openai.AsyncOpenAI, openai.AsyncAzureOpenAI],
     messages_list: list[list[dict[str,Any]]],
     model: str,
     temperature: float,
@@ -54,7 +58,7 @@ async def dispatch_openai_prompt_requests(
     stop_words: list[str]
 ) -> list[str]:
     async_responses = [
-        openai.Completion.acreate(
+        async_client.completions.create(
             model=model,
             prompt=x,
             temperature=temperature,
@@ -66,11 +70,26 @@ async def dispatch_openai_prompt_requests(
         )
         for x in messages_list
     ]
-    return await asyncio.gather(*async_responses)
+    reponses = await asyncio.gather(*async_responses)
+    print("Responses: ", responses)
+    return responses
 
 class OpenAIModel:
-    def __init__(self, API_KEY, model_name, stop_words, max_new_tokens) -> None:
-        openai.api_key = API_KEY
+    def __init__(self,
+                 API_KEY,
+                 model_name,
+                 stop_words,
+                 max_new_tokens) -> None:
+            
+        # Migrate from older (0.27.9) openai library to newer (>=1.0.0) version
+        # 2 clients are created to support both async and sync calls
+        self.client = openai.OpenAI(
+            api_key=API_KEY
+        )
+        self.async_client = openai.AsyncOpenAI(
+            api_key=API_KEY
+        )
+        
         self.model_name = model_name
         self.max_new_tokens = max_new_tokens
         self.stop_words = stop_words
@@ -78,6 +97,7 @@ class OpenAIModel:
     # used for chat-gpt and gpt-4
     def chat_generate(self, input_string, temperature = 0.0):
         response = chat_completions_with_backoff(
+                client = self.client,
                 model = self.model_name,
                 messages=[
                         {"role": "user", "content": input_string}
@@ -87,12 +107,16 @@ class OpenAIModel:
                 top_p = 1.0,
                 stop = self.stop_words
         )
+        
+        print("Responses: ", response)
+        
         generated_text = response['choices'][0]['message']['content'].strip()
         return generated_text
     
     # used for text/code-davinci
     def prompt_generate(self, input_string, temperature = 0.0):
         response = completions_with_backoff(
+            client = self.client,
             model = self.model_name,
             prompt = input_string,
             max_tokens = self.max_new_tokens,
