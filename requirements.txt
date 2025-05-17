@@ -7,3 +7,4 @@ nltk==3.8.1
 ply==3.11
 scitools-pyke==1.1.1
 func-timeout==4.3.5
+azure-identity==1.15.0

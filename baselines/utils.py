@@ -6,10 +6,12 @@ from typing import Any
 
 @backoff.on_exception(backoff.expo, openai.error.RateLimitError)
 def completions_with_backoff(**kwargs):
+    # print(kwargs)
     return openai.Completion.create(**kwargs)
 
 @backoff.on_exception(backoff.expo, openai.error.RateLimitError)
 def chat_completions_with_backoff(**kwargs):
+    print(kwargs)
     return openai.ChatCompletion.create(**kwargs)
 
 async def dispatch_openai_chat_requests(
@@ -69,8 +71,24 @@ async def dispatch_openai_prompt_requests(
     return await asyncio.gather(*async_responses)
 
 class OpenAIModel:
-    def __init__(self, API_KEY, model_name, stop_words, max_new_tokens) -> None:
+    def __init__(self, API_KEY, model_name, stop_words, max_new_tokens,
+                 *args, **kwargs) -> None:
+        # configure authentication
         openai.api_key = API_KEY
+        # temporary workaround for azure openai authentication
+        # we leave the api_key processing to the user in the wrapper
+        # e.g., API_KEY = token. (here the token is the terminilogy in authentication)
+        if 'api_type' in kwargs:
+            openai.api_type = kwargs['api_type']
+        if 'api_base' in kwargs:
+            openai.api_base = kwargs['api_base']
+        if 'api_version' in kwargs:
+            openai.api_version = kwargs['api_version']
+        
+        self.request_kwargs = dict()
+        if "deployment_id" in kwargs:
+            self.request_kwargs["deployment_id"] = kwargs["deployment_id"]
+
         self.model_name = model_name
         self.max_new_tokens = max_new_tokens
         self.stop_words = stop_words
@@ -85,7 +103,9 @@ class OpenAIModel:
                 max_tokens = self.max_new_tokens,
                 temperature = temperature,
                 top_p = 1.0,
-                stop = self.stop_words
+                stop = self.stop_words,
+                # add additional request kwargs to make it work for azure
+                **self.request_kwargs
         )
         generated_text = response['choices'][0]['message']['content'].strip()
         return generated_text
@@ -100,7 +120,9 @@ class OpenAIModel:
             top_p = 1.0,
             frequency_penalty = 0.0,
             presence_penalty = 0.0,
-            stop = self.stop_words
+            stop = self.stop_words,
+            # add additional request kwargs to make it work for azure
+            **self.request_kwargs
         )
         generated_text = response['choices'][0]['text'].strip()
         return generated_text
